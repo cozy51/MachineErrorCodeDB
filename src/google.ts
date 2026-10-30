@@ -124,8 +124,16 @@ export function logout() {
   token = '';
 }
 
+export class AuthExpiredError extends Error {}
+export class CloudConflictError extends Error {}
+
 async function api(url: string, init?: RequestInit) {
+  if (!token) throw new AuthExpiredError('Googleにログインしていません。');
   const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...init?.headers } });
+  if (response.status === 401) {
+    token = '';
+    throw new AuthExpiredError('Googleログインの有効期限が切れました。再度ログインしてください。');
+  }
   if (!response.ok) throw new Error(`Google Drive API エラー (${response.status})`);
   return response;
 }
@@ -164,9 +172,10 @@ export async function findFile() {
   return findChild(FILE, folder.id);
 }
 
+/** クラウドの原本を取得する。まだ原本が無い場合は空データを返す。 */
 export async function download() {
   const file = await findFile();
-  if (!file) throw new Error(`${FILE} が見つかりません`);
+  if (!file) return { records: [] as ErrorCode[], meta: { lastSyncedAt: new Date().toISOString() } as SyncMeta };
   const response = await api(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
   const data = await response.json() as Partial<ErrorCode>[];
   return { records: data.map(normalizeRecord), meta: { fileId: file.id, cloudModifiedTime: file.modifiedTime, lastSyncedAt: new Date().toISOString() } as SyncMeta };
@@ -174,8 +183,8 @@ export async function download() {
 
 export async function upload(records: ErrorCode[], meta: SyncMeta) {
   const current = await findFile();
-  if (current && !meta.cloudModifiedTime) throw new Error('クラウドに原本があります。上書き防止のため、先に「クラウドから取得」を実行してください。');
-  if (current && current.modifiedTime !== meta.cloudModifiedTime) throw new Error('別の端末でクラウドが更新されています。先に「クラウドから取得」を実行してください。');
+  if (current && !meta.cloudModifiedTime) throw new CloudConflictError('クラウドの原本を確認できませんでした。');
+  if (current && current.modifiedTime !== meta.cloudModifiedTime) throw new CloudConflictError('別の端末でクラウドが更新されています。');
   const body = JSON.stringify(records, null, 2);
   let response: Response;
   if (current) {
