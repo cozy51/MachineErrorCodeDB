@@ -29,6 +29,7 @@ declare global {
           initTokenClient: (options: {
             client_id: string;
             scope: string;
+            include_granted_scopes?: boolean;
             callback: (response: TokenResponse) => void;
             error_callback: (error: OAuthError) => void;
           }) => TokenClient;
@@ -96,6 +97,9 @@ export async function login() {
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: SCOPE,
+      // 同じクライアントIDで過去に許可した別アプリのスコープ（youtube.readonly 等）を
+      // 混ぜると「同時にリクエストできないスコープ」エラーになるため、今回のスコープだけを要求する。
+      include_granted_scopes: false,
       callback: (response) => {
         if (response.error) {
           reject(new Error(response.error_description || `Googleログインに失敗しました（${response.error}）。`));
